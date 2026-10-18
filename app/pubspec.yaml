@@ -1,0 +1,79 @@
+name: lenden_tracker
+description: "A private encrypted loan ledger for Android and iOS."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── Navigation ──────────────────────────────────────────────────────────────
+  go_router: ^14.8.1
+
+  # ── State management ─────────────────────────────────────────────────────────
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # ── Encrypted local database ─────────────────────────────────────────────────
+  sqflite_sqlcipher: ^3.4.1
+  path: ^1.9.1
+  path_provider: ^2.1.5
+
+  # ── Secure key storage ───────────────────────────────────────────────────────
+  flutter_secure_storage: ^9.2.2
+
+  # ── Contacts & permissions ───────────────────────────────────────────────────
+  flutter_contacts: ^1.1.9+1
+  permission_handler: ^11.3.1
+
+  # ── Sharing & files ──────────────────────────────────────────────────────────
+  share_plus: ^10.1.4
+  file_picker: ^11.0.3
+
+  # ── Screenshot for WhatsApp reminder card ────────────────────────────────────
+  screenshot: ^3.0.0
+
+  # ── Biometric / device credential lock ──────────────────────────────────────
+  local_auth: ^2.3.0
+
+  # ── Internationalisation & formatting ────────────────────────────────────────
+  intl: ^0.19.0
+
+  # ── CSV export ───────────────────────────────────────────────────────────────
+  csv: ^6.0.0
+
+  # ── Cryptography for portable encrypted backup ───────────────────────────────
+  cryptography: ^2.7.0
+
+  # ── Preferences (theme, last-backup date) ───────────────────────────────────
+  shared_preferences: ^2.3.3
+
+  # ── UI utilities ─────────────────────────────────────────────────────────────
+  flutter_svg: ^2.0.17
+  gap: ^3.0.1
+  cupertino_icons: ^1.0.8
+  url_launcher: ^6.3.3
+
+dev_dependencies:
+  integration_test:
+    sdk: flutter
+  flutter_test:
+    sdk: flutter
+
+  # The "flutter_lints" package below contains a set of recommended lints to
+  # encourage good coding practices. The lint set provided by the package is
+  # activated in the `analysis_options.yaml` file located at the root of your
+  # package. See that file for information about deactivating specific lint
+  # rules and activating additional ones.
+  flutter_lints: ^6.0.0
+  riverpod_generator: ^2.6.1
+  build_runner: ^2.4.13
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/
+    - assets/images/
