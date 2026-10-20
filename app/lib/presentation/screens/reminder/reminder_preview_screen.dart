@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/repositories/repositories.dart';
@@ -12,7 +10,11 @@ import '../../../domain/entities/entities.dart';
 
 import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/services.dart';
+
+const _whatsAppShare = MethodChannel(
+  'com.lendentracker.lenden_tracker/whatsapp_share',
+);
 
 final reminderLoanProvider = FutureProvider.family<ReminderPreviewData, int>((
   ref,
@@ -38,12 +40,24 @@ final reminderLoanProvider = FutureProvider.family<ReminderPreviewData, int>((
   var unpaidPrincipal = 0;
   var unpaidInterest = 0;
   var remainingPayments = paymentHistory
-      .where((payment) => !payment.reversed && payment.effectiveDate.compareTo(today) <= 0)
+      .where(
+        (payment) =>
+            !payment.reversed && payment.effectiveDate.compareTo(today) <= 0,
+      )
       .fold<int>(0, (sum, payment) => sum + payment.totalMinor);
-  for (final due in dues.where((due) => due.dueDate.compareTo(today) <= 0 && due.status != DueStatus.paid && due.status != DueStatus.waived)) {
-    final paidInterest = remainingPayments < due.interestMinor ? remainingPayments : due.interestMinor;
+  for (final due in dues.where(
+    (due) =>
+        due.dueDate.compareTo(today) <= 0 &&
+        due.status != DueStatus.paid &&
+        due.status != DueStatus.waived,
+  )) {
+    final paidInterest = remainingPayments < due.interestMinor
+        ? remainingPayments
+        : due.interestMinor;
     remainingPayments -= paidInterest;
-    final paidPrincipal = remainingPayments < due.principalMinor ? remainingPayments : due.principalMinor;
+    final paidPrincipal = remainingPayments < due.principalMinor
+        ? remainingPayments
+        : due.principalMinor;
     remainingPayments -= paidPrincipal;
     unpaidInterest += due.interestMinor - paidInterest;
     unpaidPrincipal += due.principalMinor - paidPrincipal;
@@ -97,7 +111,7 @@ class _ReminderPreviewScreenState extends ConsumerState<ReminderPreviewScreen> {
   final _controller = ScreenshotController();
   final _captionController = TextEditingController();
   bool _sharing = false;
-  bool? _isWhatsAppInstalled;
+  String _whatsAppAvailability = 'unknown';
 
   @override
   void initState() {
@@ -107,15 +121,16 @@ class _ReminderPreviewScreenState extends ConsumerState<ReminderPreviewScreen> {
 
   Future<void> _checkWhatsAppInstalled() async {
     try {
-      final uri = Uri.parse('whatsapp://send');
-      final canOpen = await canLaunchUrl(uri);
+      final availability = await _whatsAppShare.invokeMethod<String>(
+        'availability',
+      );
       if (mounted) {
-        setState(() => _isWhatsAppInstalled = canOpen);
+        setState(() => _whatsAppAvailability = availability ?? 'unknown');
       }
-    } catch (_) {
-      if (mounted) {
-        setState(() => _isWhatsAppInstalled = false);
-      }
+    } on PlatformException {
+      if (mounted) setState(() => _whatsAppAvailability = 'unknown');
+    } on MissingPluginException {
+      if (mounted) setState(() => _whatsAppAvailability = 'unknown');
     }
   }
 
@@ -125,24 +140,54 @@ class _ReminderPreviewScreenState extends ConsumerState<ReminderPreviewScreen> {
     super.dispose();
   }
 
+  String get _shareText {
+    final caption = _captionController.text.trim();
+    return caption.isEmpty
+        ? 'A friendly loan reminder. Please choose the recipient yourself; nothing is sent automatically.'
+        : '$caption Please choose the recipient yourself; nothing is sent automatically.';
+  }
+
+  Future<void> _shareWhatsApp(LoanListItem item) async {
+    setState(() => _sharing = true);
+    var message = 'Could not open WhatsApp. Use Share via another app instead.';
+    try {
+      final image = await _controller.capture(pixelRatio: 2);
+      if (image == null) throw StateError('Image unavailable');
+      final opened = await _whatsAppShare.invokeMethod<bool>('shareImage', {
+        'image': image,
+        'text': _shareText,
+      });
+      if (opened == true) {
+        message = 'WhatsApp opened. Select a recipient there; delivery is not confirmed.';
+      } else {
+        await _checkWhatsAppInstalled();
+      }
+    } on PlatformException {
+      await _checkWhatsAppInstalled();
+    } on MissingPluginException {
+      // Generic chooser remains available if this platform has no native handler.
+    } finally {
+      if (mounted) {
+        setState(() => _sharing = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
+      }
+    }
+  }
+
   Future<void> _share(LoanListItem item) async {
     setState(() => _sharing = true);
     var message = 'Sharing is unavailable right now. You can try again later.';
     try {
       final Uint8List? image = await _controller.capture(pixelRatio: 2);
       if (image == null) throw StateError('Image unavailable');
-      final result = await Share.shareXFiles(
-        [
-          XFile.fromData(
-            image,
-            mimeType: 'image/png',
-            name: 'reminder_${item.loan.id}.png',
-          ),
-        ],
-        text: _captionController.text.trim().isEmpty
-            ? 'A friendly loan reminder. Choose WhatsApp or another messaging app and select the recipient yourself; nothing is sent automatically.'
-            : '${_captionController.text.trim()} Choose the recipient yourself; nothing is sent automatically.',
-      );
+      final result = await Share.shareXFiles([
+        XFile.fromData(
+          image,
+          mimeType: 'image/png',
+          name: 'reminder_${item.loan.id}.png',
+        ),
+      ], text: _shareText);
       message = result.status == ShareResultStatus.dismissed
           ? 'Sharing cancelled. The reminder was not sent.'
           : 'Share sheet closed. Delivery is not confirmed.';
@@ -271,13 +316,6 @@ class _ReminderPreviewScreenState extends ConsumerState<ReminderPreviewScreen> {
               Text(
                 'Phone: ${preview.phone.isEmpty ? 'Not available' : preview.phone}',
               ),
-              TextField(
-                controller: _captionController,
-                maxLength: 240,
-                decoration: const InputDecoration(
-                  labelText: 'Optional caption',
-                ),
-              ),
               const Text('Notes are kept private and excluded from the image.'),
               Text(
                 'Current due: ${MoneyUtils.format(preview.currentDueMinor, item.loan.currency)} · ${preview.nextDueDate ?? 'No date set'}',
@@ -286,25 +324,16 @@ class _ReminderPreviewScreenState extends ConsumerState<ReminderPreviewScreen> {
               const Text(
                 'Sharing does not confirm delivery. The recipient may not receive or read it.',
               ),
-              if (_isWhatsAppInstalled == false) ...[
+              const Text(
+                'WhatsApp opens its own recipient picker. The number above is for your reference only; no recipient is selected or sent a message automatically.',
+              ),
+              if (_whatsAppAvailability == 'missing' ||
+                  _whatsAppAvailability == 'noHandler') ...[
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.info_outline,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'WhatsApp is not detected on this device. You can still save the image or share via other installed apps.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                      ),
-                    ),
-                  ],
+                Text(
+                  _whatsAppAvailability == 'missing'
+                      ? 'WhatsApp is not installed. Save the image or share via another app.'
+                      : 'WhatsApp cannot handle reminder images on this device. Share via another app instead.',
                 ),
               ],
               const SizedBox(height: 12),
@@ -316,9 +345,14 @@ class _ReminderPreviewScreenState extends ConsumerState<ReminderPreviewScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+              if (_whatsAppAvailability == 'available')
+                FilledButton(
+                  onPressed: _sharing ? null : () => _shareWhatsApp(item),
+                  child: const Text('Share via WhatsApp'),
+                ),
               FilledButton(
                 onPressed: _sharing ? null : () => _share(item),
-                child: Text(_sharing ? 'Preparing…' : 'Share reminder'),
+                child: Text(_sharing ? 'Preparing…' : 'Share via another app'),
               ),
               TextButton.icon(
                 onPressed: _sharing ? null : () => _saveImage(item),
