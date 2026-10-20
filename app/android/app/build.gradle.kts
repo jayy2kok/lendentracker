@@ -15,11 +15,8 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        // You can update the following values to match your needs.
         applicationId = "com.lendentracker.lenden_tracker"
-        providers.gradleProperty("ldtTestApplicationIdSuffix").orNull?.let {
-            applicationIdSuffix = it
-        }
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -30,6 +27,17 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    flavorDimensions += "testIsolation"
+    productFlavors {
+        create("acceptance") {
+            dimension = "testIsolation"
+            applicationIdSuffix = ".acceptance"
+        }
+        create("standard") {
+            dimension = "testIsolation"
+        }
     }
 
     buildTypes {

@@ -11,17 +11,21 @@ From this directory:
 - `flutter build apk --debug`: Android development build, not a production-signed release.
 - `flutter devices`: discover the VS Code-connected Android emulator.
 
-Storage integration tests in `integration_test` require an isolated application ID ending in `.acceptance`. Build from `android` with explicit quoted Gradle properties:
+Storage integration tests in `integration_test` require an isolated application ID ending in `.acceptance`. The Gradle `assembleDebug` command only **builds** a test APK; it does not run the test or report completion. On an arm64 physical device, run the bounded ledger runner from this directory:
 
 ```powershell
-.\gradlew.bat assembleDebug '-Ptarget=integration_test/storage_test.dart' '-Ptarget-platform=android-x64' '-PldtTestApplicationIdSuffix=.acceptance'
+python tool/run_ledger_device.py 'adb-10BFBQ133K0024U-aGMvZL._adb-tls-connect._tcp'
 ```
 
-Verify the APK application ID with Android SDK `aapt dump badging` before installing `build\app\outputs\apk\debug\app-debug.apk`. It must be `com.lendentracker.lenden_tracker.acceptance`. Launch its `com.lendentracker.lenden_tracker.MainActivity` and inspect app-PID logcat for the integration test result. Repeat with `integration_test/ledger_test.dart` for native payment/reversal/restart checks. Both tests passed on the Android emulator.
+The runner invokes Flutter's integration-test harness with the `acceptance` Android flavor (application ID `com.lendentracker.lenden_tracker.acceptance`) on the specified serial. It clears stale device port forwards and logcat entries before launching, because Flutter uses both to discover its VM service; neither is used as the test verdict. Flutter reports assertions and `All tests passed!`, returning nonzero for a failed test. The runner bounds the device check to 30 seconds, each test to 90 seconds, and the entire Flutter invocation to 600 seconds. The `standard` flavor remains the default for normal builds.
 
-Do not rely on an environment-variable suffix: it did not produce an isolated APK in an earlier build. Flutter may automatically uninstall an existing app after an installation failure; use direct `adb install -r` only after checking the built identity.
+For the storage integration target, use the same isolated flavor and Flutter harness, replacing the target path:
 
-The optional Gradle suffix must be verified in the built artifact, not assumed from configuration. Never clear or replace the personal installed ledger for testing. Windows/emulator results do not establish iOS, physical-device authentication, cross-platform restore, or release-signing acceptance.
+```powershell
+flutter test integration_test/storage_test.dart -d '<device-serial>' --flavor acceptance --timeout 90s
+```
+
+The test asserts that the runtime documents directory belongs to `.acceptance` before touching the database. Never clear or replace the personal installed ledger for testing. Physical-device ledger verification is described above; it does not establish iOS, cross-platform restore, or release-signing acceptance.
 
 ## Getting Started
 
