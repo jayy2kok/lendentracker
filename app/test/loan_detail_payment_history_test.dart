@@ -32,7 +32,8 @@ void main() {
           paymentContextProvider(1).overrideWith(
             (ref) async => (loan: loan(), outstandingMinor: 10000),
           ),
-          interestDueProvider(1).overrideWith((ref) async => 9677),
+          interestBalanceProvider(1)
+              .overrideWith((ref) async => (dueMinor: 9677, futureMinor: 0)),
           loanDetailProvider(1).overrideWith(
             (ref) async => (
               loan: Loan(

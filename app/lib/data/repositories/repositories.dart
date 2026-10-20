@@ -383,13 +383,14 @@ class LoanRepository {
         whereArgs: [loanId],
       );
       if (rows.isEmpty) throw StateError('Loan not found');
-      final remaining = await txn.rawQuery(
-        'SELECT principal_minor - COALESCE((SELECT SUM(principal_minor) FROM payments WHERE loan_id = ? AND reversed = 0), 0) AS amount FROM loans WHERE id = ?',
-        [loanId, loanId],
-      );
-      if ((remaining.first['amount'] as int) != 0) {
+      final principal = await PaymentRepository(db: db)
+          ._paidPrincipal(txn, loanId);
+      final unpaidInterest = await PaymentRepository(db: db)
+          ._unpaidInterest(txn, rows.first, loanId);
+      if (principal != (rows.first['principal_minor'] as int) ||
+          unpaidInterest > 0) {
         throw StateError(
-          'Loan cannot be settled until principal is fully paid',
+          'Loan cannot be settled until principal and interest are paid or waived',
         );
       }
       await txn.update(
@@ -789,14 +790,22 @@ class PaymentRepository {
         loanId,
         excludingPaymentId: excludingPaymentId,
       );
-      final accrued = await _accruedInterestThrough(
-        txn,
-        loan: loan,
-        loanId: loanId,
-        asOfDate: effectiveDate,
-        calculator: const InterestCalculator(),
-        excludingPaymentId: excludingPaymentId,
-      );
+      final accrued = loan['interest_method'] == 'fixed_total'
+          ? await _fixedInterestAvailable(
+              txn,
+              loan,
+              loanId,
+              effectiveDate,
+              outstanding,
+            )
+          : await _accruedInterestThrough(
+              txn,
+              loan: loan,
+              loanId: loanId,
+              asOfDate: effectiveDate,
+              calculator: const InterestCalculator(),
+              excludingPaymentId: excludingPaymentId,
+            );
       final allocation = const InterestCalculator().allocate(
         paymentTotal: totalMinor,
         outstandingPrincipal: outstanding,
@@ -827,6 +836,30 @@ class PaymentRepository {
     );
   }
 
+  /// Separate currently payable fixed interest from the agreed balance not yet due.
+  Future<({int dueMinor, int futureMinor})> interestBalance(
+    int loanId,
+    String asOfDate,
+  ) async {
+    _validateDate(asOfDate);
+    final rows = await db.query('loans', where: 'id = ?', whereArgs: [loanId]);
+    if (rows.isEmpty) throw StateError('Loan not found');
+    final loan = rows.first;
+    if (loan['interest_method'] != 'fixed_total') {
+      return (dueMinor: await interestDue(loanId, asOfDate), futureMinor: 0);
+    }
+    final paid = await _paidInterest(db, loanId);
+    final waived = await _waivedInterest(db, loanId);
+    final remaining =
+        ((loan['fixed_interest_minor'] as int? ?? 0) - paid - waived).clamp(
+          0,
+          1 << 62,
+        );
+    final dueTotal = await _fixedInterestDue(db, loan, loanId, asOfDate);
+    final due = (dueTotal - paid - waived).clamp(0, remaining);
+    return (dueMinor: due, futureMinor: remaining - due);
+  }
+
   Future<int> interestDue(int loanId, String asOfDate) async {
     final accrued = await accruedInterest(loanId, asOfDate);
     final loans = await db.query(
@@ -835,6 +868,10 @@ class PaymentRepository {
       where: 'id = ?',
       whereArgs: [loanId],
     );
+    final loan = loans.first;
+    if (loan['interest_method'] == 'fixed_total') {
+      return (await interestBalance(loanId, asOfDate)).dueMinor;
+    }
     final paid = await db.rawQuery(
       'SELECT COALESCE(SUM(interest_minor), 0) AS total FROM payments '
       'WHERE loan_id = ? AND reversed = 0 AND effective_date <= ?',
@@ -1113,14 +1150,16 @@ class PaymentRepository {
       loanId,
       excludingPaymentId: excludingPaymentId,
     );
-    final accrued = await _accruedInterestThrough(
-      txn,
-      loan: loan,
-      loanId: loanId,
-      asOfDate: date,
-      calculator: const InterestCalculator(),
-      excludingPaymentId: excludingPaymentId,
-    );
+    final accrued = loan['interest_method'] == 'fixed_total'
+        ? await _fixedInterestAvailable(txn, loan, loanId, date, outstanding)
+        : await _accruedInterestThrough(
+            txn,
+            loan: loan,
+            loanId: loanId,
+            asOfDate: date,
+            calculator: const InterestCalculator(),
+            excludingPaymentId: excludingPaymentId,
+          );
     final allocation = const InterestCalculator().allocate(
       paymentTotal: total,
       outstandingPrincipal: outstanding,
@@ -1143,10 +1182,13 @@ class PaymentRepository {
     );
     if (loanRows.isEmpty) return;
     final principal = await _paidPrincipal(txn, loanId);
+    final unpaidInterest = await _unpaidInterest(txn, loanRows.first, loanId);
     await txn.update(
       'loans',
       {
-        'status': principal >= (loanRows.first['principal_minor'] as int)
+        'status':
+            principal >= (loanRows.first['principal_minor'] as int) &&
+                unpaidInterest == 0
             ? 'settled'
             : 'active',
         'updated_at': now,
@@ -1154,6 +1196,69 @@ class PaymentRepository {
       where: 'id = ?',
       whereArgs: [loanId],
     );
+  }
+
+  Future<int> _fixedInterestDue(
+    DatabaseExecutor executor,
+    Map<String, Object?> loan,
+    int loanId,
+    String asOfDate,
+  ) async {
+    final dues = await executor.rawQuery(
+      'SELECT COALESCE(SUM(interest_minor), 0) AS amount FROM scheduled_dues '
+      'WHERE loan_id = ? AND due_date <= ?',
+      [loanId, asOfDate],
+    );
+    final totalDues = await executor.rawQuery(
+      'SELECT COUNT(*) AS count FROM scheduled_dues WHERE loan_id = ?',
+      [loanId],
+    );
+    if ((totalDues.first['count'] as int) > 0) {
+      return dues.first['amount'] as int;
+    }
+    final maturity = loan['maturity_date'] as String?;
+    return maturity == null || maturity.compareTo(asOfDate) > 0
+        ? 0
+        : loan['fixed_interest_minor'] as int? ?? 0;
+  }
+
+  Future<int> _fixedInterestAvailable(
+    DatabaseExecutor executor,
+    Map<String, Object?> loan,
+    int loanId,
+    String asOfDate,
+    int outstandingPrincipal,
+  ) async {
+    final due = await _fixedInterestDue(executor, loan, loanId, asOfDate);
+    // Once principal is paid, allow collection of the remaining agreed fixed
+    // interest before maturity without treating it as already due.
+    return outstandingPrincipal == 0
+        ? loan['fixed_interest_minor'] as int? ?? 0
+        : due;
+  }
+
+  Future<int> _unpaidInterest(
+    DatabaseExecutor executor,
+    Map<String, Object?> loan,
+    int loanId,
+  ) async {
+    final method = loan['interest_method'] as String;
+    if (method == 'none') return 0;
+    final paid = await _paidInterest(executor, loanId);
+    final waived = await _waivedInterest(executor, loanId);
+    if (method == 'fixed_total') {
+      return ((loan['fixed_interest_minor'] as int? ?? 0) - paid - waived)
+          .clamp(0, 1 << 62);
+    }
+    final accrued = await _accruedInterestThrough(
+      executor,
+      loan: loan,
+      loanId: loanId,
+      asOfDate: DateTime.now().toIso8601String().substring(0, 10),
+      calculator: const InterestCalculator(),
+    );
+    final applicableWaiver = method == 'remaining_principal' ? 0 : waived;
+    return (accrued - paid - applicableWaiver).clamp(0, 1 << 62);
   }
 
   Future<Payment> recordNoInterest(Payment p) async {
@@ -1346,13 +1451,21 @@ class PaymentRepository {
       if (p.principalMinor > outstanding) {
         throw StateError('Payment exceeds outstanding principal');
       }
-      final accrued = await _accruedInterestThrough(
-        txn,
-        loan: loan,
-        loanId: p.loanId,
-        asOfDate: p.effectiveDate,
-        calculator: calculator,
-      );
+      final accrued = loan['interest_method'] == 'fixed_total'
+          ? await _fixedInterestAvailable(
+              txn,
+              loan,
+              p.loanId,
+              p.effectiveDate,
+              outstanding,
+            )
+          : await _accruedInterestThrough(
+              txn,
+              loan: loan,
+              loanId: p.loanId,
+              asOfDate: p.effectiveDate,
+              calculator: calculator,
+            );
       final allocation = calculator.allocate(
         paymentTotal: p.totalMinor,
         outstandingPrincipal: outstanding,
@@ -1387,14 +1500,7 @@ class PaymentRepository {
         'effective_at': p.effectiveDate,
         'created_at': now,
       });
-      if (allocation.principal == outstanding) {
-        await txn.update(
-          'loans',
-          {'status': 'settled', 'updated_at': now},
-          where: 'id = ?',
-          whereArgs: [p.loanId],
-        );
-      }
+      await _refreshLoanStatus(txn, p.loanId, now);
       return Payment(
         id: id,
         loanId: p.loanId,
@@ -1423,13 +1529,15 @@ class PaymentRepository {
       );
       if (loans.isEmpty) throw StateError('Loan not found');
       final loan = loans.first;
-      final accrued = await _accruedInterestThrough(
-        txn,
-        loan: loan,
-        loanId: loanId,
-        asOfDate: effectiveDate,
-        calculator: const InterestCalculator(),
-      );
+      final accrued = loan['interest_method'] == 'fixed_total'
+          ? loan['fixed_interest_minor'] as int? ?? 0
+          : await _accruedInterestThrough(
+              txn,
+              loan: loan,
+              loanId: loanId,
+              asOfDate: effectiveDate,
+              calculator: const InterestCalculator(),
+            );
       final paid = await _paidInterestThrough(txn, loanId, effectiveDate);
       final waived = await _waivedThrough(txn, loanId, effectiveDate);
       final after = waived + amountMinor;
@@ -1467,13 +1575,15 @@ class PaymentRepository {
               0) {
         throw StateError('Loan cannot be waived');
       }
-      final accrued = await _accruedInterestThrough(
-        txn,
-        loan: loans.first,
-        loanId: waiver.loanId,
-        asOfDate: waiver.waiverDate,
-        calculator: const InterestCalculator(),
-      );
+      final accrued = loans.first['interest_method'] == 'fixed_total'
+          ? loans.first['fixed_interest_minor'] as int? ?? 0
+          : await _accruedInterestThrough(
+              txn,
+              loan: loans.first,
+              loanId: waiver.loanId,
+              asOfDate: waiver.waiverDate,
+              calculator: const InterestCalculator(),
+            );
       final paidThrough = await _paidInterestThrough(
         txn,
         waiver.loanId,
@@ -1495,35 +1605,7 @@ class PaymentRepository {
         'note': waiver.note,
         'created_at': now,
       });
-      final outstanding =
-          (loans.first['principal_minor'] as int) -
-          await _paidPrincipal(txn, waiver.loanId);
-      final due = const InterestCalculator().accruedInterest(
-        startDate: loans.first['start_date'] as String,
-        asOfDate: waiver.waiverDate,
-        principalMinor: outstanding,
-        method: InterestMethod.values.byName(
-          _camelName(loans.first['interest_method'] as String),
-        ),
-        rate: (loans.first['interest_rate'] as num?)?.toDouble(),
-        ratePeriod: loans.first['rate_period'] == null
-            ? null
-            : RatePeriod.values.byName(loans.first['rate_period'] as String),
-        fixedInterestMinor: loans.first['fixed_interest_minor'] as int?,
-      );
-      final paidInterest = await _paidInterest(txn, waiver.loanId);
-      final waived = await txn.rawQuery(
-        'SELECT COALESCE(SUM(amount_minor), 0) AS total FROM waivers WHERE loan_id = ?',
-        [waiver.loanId],
-      );
-      if ((paidInterest + (waived.first['total'] as int)) >= due) {
-        await txn.update(
-          'loans',
-          {'status': 'waived', 'updated_at': now},
-          where: 'id = ?',
-          whereArgs: [waiver.loanId],
-        );
-      }
+      await _refreshLoanStatus(txn, waiver.loanId, now);
       return id;
     });
   }
@@ -1558,9 +1640,17 @@ class PaymentRepository {
     return rows.first['amount'] as int;
   }
 
-  Future<int> _paidInterest(Transaction txn, int loanId) async {
+  Future<int> _paidInterest(DatabaseExecutor txn, int loanId) async {
     final rows = await txn.rawQuery(
       'SELECT COALESCE(SUM(interest_minor), 0) AS amount FROM payments WHERE loan_id = ? AND reversed = 0',
+      [loanId],
+    );
+    return rows.first['amount'] as int;
+  }
+
+  Future<int> _waivedInterest(DatabaseExecutor txn, int loanId) async {
+    final rows = await txn.rawQuery(
+      'SELECT COALESCE(SUM(amount_minor), 0) AS amount FROM waivers WHERE loan_id = ?',
       [loanId],
     );
     return rows.first['amount'] as int;

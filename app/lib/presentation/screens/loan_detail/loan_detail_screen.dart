@@ -35,6 +35,16 @@ final interestDueProvider = FutureProvider.family<int, int>((ref, id) {
       .interestDue(id, DateTime.now().toIso8601String().substring(0, 10));
 });
 
+final interestBalanceProvider =
+    FutureProvider.family<({int dueMinor, int futureMinor}), int>((ref, id) {
+      return ref
+          .watch(paymentRepoProvider)
+          .interestBalance(
+            id,
+            DateTime.now().toIso8601String().substring(0, 10),
+          );
+    });
+
 class LoanDetailScreen extends ConsumerWidget {
   const LoanDetailScreen({super.key, required this.loanId});
   final int loanId;
@@ -193,7 +203,7 @@ class LoanDetailScreen extends ConsumerWidget {
                                       const Text('Could not load balance.'),
                                   data: (value) {
                                     final interest = ref.watch(
-                                      interestDueProvider(loanId),
+                                      interestBalanceProvider(loanId),
                                     );
                                     return Column(
                                       crossAxisAlignment:
@@ -208,12 +218,34 @@ class LoanDetailScreen extends ConsumerWidget {
                                           error: (_, _) => const Text(
                                             'Could not load interest due.',
                                           ),
-                                          data: (due) => Text(
-                                            'Interest due: ${MoneyUtils.format(due, loan.currency)}',
+                                          data: (balance) => Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Interest due: ${MoneyUtils.format(balance.dueMinor, loan.currency)}',
+                                              ),
+                                              if (balance.futureMinor > 0)
+                                                Text(
+                                                  'Future fixed interest: ${MoneyUtils.format(balance.futureMinor, loan.currency)}',
+                                                ),
+                                            ],
                                           ),
                                         ),
                                         if (loan.status == LoanStatus.active &&
-                                            value.outstandingMinor > 0)
+                                            (value.outstandingMinor > 0 ||
+                                                loan.interestMethod ==
+                                                        InterestMethod
+                                                            .fixedTotal &&
+                                                    interest.valueOrNull !=
+                                                        null &&
+                                                    (interest
+                                                                .valueOrNull!
+                                                                .dueMinor +
+                                                            interest
+                                                                .valueOrNull!
+                                                                .futureMinor) >
+                                                        0))
                                           FilledButton(
                                             onPressed: () => context.push(
                                               '/loans/$loanId/payment',
@@ -416,6 +448,7 @@ class LoanDetailScreen extends ConsumerWidget {
                           ),
                         );
                     ref.invalidate(loanDetailProvider(loan.id!));
+                    ref.invalidate(interestBalanceProvider(loan.id!));
                     ref.invalidate(paymentContextProvider(loan.id!));
                     ref.invalidate(principalBalancesProvider);
                     ref.invalidate(loansProvider);
@@ -552,6 +585,7 @@ class _PaymentHistory extends ConsumerWidget {
       ref.invalidate(paymentHistoryProvider(loanId));
       ref.invalidate(paymentContextProvider(loanId));
       ref.invalidate(interestDueProvider(loanId));
+      ref.invalidate(interestBalanceProvider(loanId));
       ref.invalidate(loanDetailProvider(loanId));
       ref.invalidate(principalBalancesProvider);
       ref.invalidate(loansProvider);
@@ -755,6 +789,7 @@ class _PaymentHistory extends ConsumerWidget {
                     ref.invalidate(paymentHistoryProvider(loanId));
                     ref.invalidate(paymentContextProvider(loanId));
                     ref.invalidate(interestDueProvider(loanId));
+                    ref.invalidate(interestBalanceProvider(loanId));
                     ref.invalidate(loanDetailProvider(loanId));
                     ref.invalidate(principalBalancesProvider);
                     ref.invalidate(loansProvider);
