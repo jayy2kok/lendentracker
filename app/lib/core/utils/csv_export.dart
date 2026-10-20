@@ -27,7 +27,7 @@ class CsvExportService {
 
     final paymentRows = await db.rawQuery('''
       SELECT p.id, p.loan_id, p.effective_date, p.total_minor, p.principal_minor,
-             p.interest_minor, p.note, p.reversed
+             p.interest_minor, p.note, p.reversed, p.reversal_reason
       FROM payments p
       ORDER BY p.id ASC
     ''');
@@ -83,6 +83,7 @@ class CsvExportService {
       'Interest Minor',
       'Note',
       'Reversed',
+      'Reversal reason',
     ]);
 
     for (final p in paymentRows) {
@@ -95,6 +96,7 @@ class CsvExportService {
         p['interest_minor'],
         sanitize(p['note']),
         p['reversed'],
+        sanitize(p['reversal_reason']),
       ]);
     }
 

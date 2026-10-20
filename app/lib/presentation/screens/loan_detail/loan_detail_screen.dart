@@ -292,7 +292,7 @@ class LoanDetailScreen extends ConsumerWidget {
               final p = await ref
                   .read(paymentRepoProvider)
                   .previewWaiver(loan.id!, today, parsed);
-                  if (!dialogContext.mounted || text != amount) return;
+              if (!dialogContext.mounted || text != amount) return;
               setDialogState(() {
                 preview = p;
                 previewError = null;
@@ -412,9 +412,7 @@ class LoanDetailScreen extends ConsumerWidget {
                               amount,
                               loan.currency,
                             )!,
-                            note: note.trim().isEmpty
-                                ? null
-                                : note.trim(),
+                            note: note.trim().isEmpty ? null : note.trim(),
                           ),
                         );
                     ref.invalidate(loanDetailProvider(loan.id!));
@@ -471,7 +469,8 @@ class _PaymentHistory extends ConsumerWidget {
                 title: Text(p.effectiveDate),
                 subtitle: Text(
                   '${p.reversed ? 'Reversed · ' : ''}'
-                  'principal ${MoneyUtils.format(p.principalMinor, currency)}',
+                  'principal ${MoneyUtils.format(p.principalMinor, currency)}'
+                  '${p.reversed && p.reversalReason != null ? '\nReason: ${p.reversalReason}' : ''}',
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -506,28 +505,50 @@ class _PaymentHistory extends ConsumerWidget {
     WidgetRef ref,
     Payment p,
   ) async {
-    final confirmed = await showDialog<bool>(
+    var reasonText = '';
+    final formKey = GlobalKey<FormState>();
+    final reason = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Reverse payment?'),
-        content: Text(
-          'Reverse ${MoneyUtils.format(p.totalMinor, currency)} dated ${p.effectiveDate}?',
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Reverse ${MoneyUtils.format(p.totalMinor, currency)} dated ${p.effectiveDate}?',
+              ),
+              TextFormField(
+                onChanged: (value) => reasonText = value,
+                decoration: const InputDecoration(labelText: 'Reversal reason'),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Reason is required'
+                    : null,
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(dialogContext, reasonText.trim());
+              }
+            },
             child: const Text('Reverse'),
           ),
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (reason == null) return;
     try {
-      await ref.read(paymentRepoProvider).reverse(p.id!);
+      await ref.read(paymentRepoProvider).reverse(p.id!, reason);
       ref.invalidate(paymentHistoryProvider(loanId));
       ref.invalidate(paymentContextProvider(loanId));
       ref.invalidate(interestDueProvider(loanId));

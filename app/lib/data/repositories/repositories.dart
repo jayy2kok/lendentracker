@@ -1280,7 +1280,11 @@ class PaymentRepository {
     return (result.first['total'] as int?) ?? 0;
   }
 
-  Future<void> reverse(int paymentId) async {
+  Future<void> reverse(int paymentId, String reason) async {
+    final reversalReason = reason.trim();
+    if (reversalReason.isEmpty) {
+      throw ArgumentError('Reversal reason is required');
+    }
     await db.transaction((txn) async {
       final rows = await txn.query(
         'payments',
@@ -1294,7 +1298,7 @@ class PaymentRepository {
       final loanId = rows.first['loan_id'] as int;
       await txn.update(
         'payments',
-        {'reversed': 1},
+        {'reversed': 1, 'reversal_reason': reversalReason},
         where: 'id = ?',
         whereArgs: [paymentId],
       );
@@ -1572,6 +1576,7 @@ class PaymentRepository {
     note: row['note'] as String?,
     reversed: (row['reversed'] as int) == 1,
     reversalOfId: row['reversal_of_id'] as int?,
+    reversalReason: row['reversal_reason'] as String?,
     createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
   );
 }
