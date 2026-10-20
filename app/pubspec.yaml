@@ -56,6 +56,7 @@ dependencies:
   gap: ^3.0.1
   cupertino_icons: ^1.0.8
   url_launcher: ^6.3.3
+  dlibphonenumber: ^1.1.74
 
 dev_dependencies:
   integration_test:

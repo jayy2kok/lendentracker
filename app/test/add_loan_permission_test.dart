@@ -28,6 +28,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(pickerOpened, isFalse);
-    expect(find.textContaining('Contact access is required'), findsOneWidget);
+    expect(find.textContaining('Existing loans remain accessible'), findsOneWidget);
   });
 }
