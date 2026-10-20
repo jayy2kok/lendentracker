@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
 const _kDbKeyAlias = 'ldt_db_key';
-const _kDbVersion = 4;
+const _kDbVersion = 5;
 const _kDbName = 'lenden_tracker.db';
 
 /// Opens (or creates) the encrypted SQLite database.
@@ -160,6 +160,7 @@ class AppDatabase {
         note                TEXT,
         reversed            INTEGER NOT NULL DEFAULT 0,  -- boolean 0/1
         reversal_of_id      INTEGER REFERENCES payments(id),
+        reversal_reason     TEXT,
         created_at          INTEGER NOT NULL
       )
     ''');
@@ -248,6 +249,8 @@ class AppDatabase {
         await _migrateLoanTerms(db);
         await _ensureLedgerSchema(db);
       },
+      5: (db) =>
+          db.execute('ALTER TABLE payments ADD COLUMN reversal_reason TEXT'),
     };
     for (var version = oldV + 1; version <= newV; version++) {
       final migration = migrations[version];
