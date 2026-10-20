@@ -87,9 +87,9 @@ void main() {
 
         final interestPayment = await pay(id, asOf, 500000);
         await check(id, LoanStatus.settled, 0, 0, 0);
-        await payments.reverse(interestPayment.id!);
+        await payments.reverse(interestPayment.id!, 'Synthetic interest reversal');
         await check(id, LoanStatus.active, 0, 0, 500000);
-        await payments.reverse(principalPayment.id!);
+        await payments.reverse(principalPayment.id!, 'Synthetic principal reversal');
         await check(id, LoanStatus.active, 2500000, 0, 500000);
 
         final waivedId = await create();
