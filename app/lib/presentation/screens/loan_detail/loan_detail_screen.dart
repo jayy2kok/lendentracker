@@ -405,14 +405,12 @@ class LoanDetailScreen extends ConsumerWidget {
                 preview = p;
                 previewError = null;
               });
-            } catch (e) {
+            } catch (_) {
               if (!dialogContext.mounted || text != amount) return;
               setDialogState(() {
                 preview = null;
-                previewError = e
-                    .toString()
-                    .replaceAll('Exception: ', '')
-                    .replaceAll('StateError: ', '');
+                previewError =
+                    'Could not preview waiver. Check the amount and try again.';
               });
             }
           }
@@ -529,10 +527,12 @@ class LoanDetailScreen extends ConsumerWidget {
                     ref.invalidate(principalBalancesProvider);
                     ref.invalidate(loansProvider);
                     if (dialogContext.mounted) Navigator.pop(dialogContext);
-                  } catch (e) {
+                  } catch (_) {
                     if (dialogContext.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Could not waive interest: $e')),
+                        const SnackBar(
+                          content: Text('Could not waive interest. Try again.'),
+                        ),
                       );
                     }
                   }
@@ -716,13 +716,10 @@ class _PaymentHistory extends ConsumerWidget {
                 preview = p;
                 previewError = null;
               });
-            } catch (e) {
+            } catch (_) {
               setDialogState(() {
                 preview = null;
-                previewError = e
-                    .toString()
-                    .replaceAll('Exception: ', '')
-                    .replaceAll('StateError: ', '');
+                previewError = 'Could not preview payment. Check the details and try again.';
               });
             }
           }
@@ -870,10 +867,12 @@ class _PaymentHistory extends ConsumerWidget {
                     ref.invalidate(principalBalancesProvider);
                     ref.invalidate(loansProvider);
                     if (dialogContext.mounted) Navigator.pop(dialogContext);
-                  } catch (e) {
+                  } catch (_) {
                     if (dialogContext.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Could not update payment: $e')),
+                        const SnackBar(
+                          content: Text('Could not update payment. Try again.'),
+                        ),
                       );
                     }
                   }

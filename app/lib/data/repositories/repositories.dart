@@ -204,11 +204,16 @@ class LoanRepository {
     return db.transaction((txn) async {
       final existing = await txn.query(
         'people',
-        columns: ['id'],
+        columns: ['id', 'contact_id'],
         where: 'phone_e164 = ?',
         whereArgs: [normalizedPhone],
         limit: 1,
       );
+      if (existing.isNotEmpty && existing.first['contact_id'] != contactId) {
+        throw StateError(
+          'Re-link the existing person before using a different contact',
+        );
+      }
       final personId = existing.isNotEmpty
           ? existing.first['id'] as int
           : await txn.insert('people', {
