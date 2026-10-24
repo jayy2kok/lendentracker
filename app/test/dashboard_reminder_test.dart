@@ -164,14 +164,14 @@ void main() {
       expect(find.textContaining('Loan reference #1'), findsOneWidget);
       expect(find.textContaining('Outstanding principal'), findsOneWidget);
       expect(find.textContaining('Current due:'), findsWidgets);
-      expect(find.text('Optional caption'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('Save image'),
         100,
         scrollable: find.byType(Scrollable).first,
       );
+      expect(find.text('Optional caption'), findsOneWidget);
       expect(find.text('Save image'), findsOneWidget);
-      expect(find.text('Share reminder'), findsOneWidget);
+      expect(find.text('Share via another app'), findsOneWidget);
     },
   );
 }

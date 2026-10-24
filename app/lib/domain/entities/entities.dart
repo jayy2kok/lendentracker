@@ -147,6 +147,7 @@ class Payment {
   final String? note;
   final bool reversed;
   final int? reversalOfId;
+  final String? reversalReason;
   final DateTime createdAt;
 
   const Payment({
@@ -159,6 +160,7 @@ class Payment {
     this.note,
     this.reversed = false,
     this.reversalOfId,
+    this.reversalReason,
     required this.createdAt,
   });
 }

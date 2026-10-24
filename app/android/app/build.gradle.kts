@@ -4,6 +4,30 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseSigningVariables = listOf(
+    "RELEASE_KEYSTORE_PATH",
+    "RELEASE_KEYSTORE_PASSWORD",
+    "RELEASE_KEY_ALIAS",
+    "RELEASE_KEY_PASSWORD",
+)
+val missingReleaseSigningVariables = releaseSigningVariables.filter { System.getenv(it).isNullOrBlank() }
+
+// Keep debug/test builds credential-free, but reject every release packaging task.
+gradle.taskGraph.whenReady {
+    if (allTasks.any { it.project.path == ":app" &&
+            it.name.contains("release", ignoreCase = true) &&
+            (it.name.startsWith("assemble", ignoreCase = true) ||
+                it.name.startsWith("bundle", ignoreCase = true) ||
+                it.name.startsWith("package", ignoreCase = true)) }) {
+        if (missingReleaseSigningVariables.isNotEmpty()) {
+            throw GradleException("Release signing unavailable: missing ${missingReleaseSigningVariables.joinToString()}")
+        }
+        if (!file(System.getenv("RELEASE_KEYSTORE_PATH")).isFile) {
+            throw GradleException("Release signing unavailable: RELEASE_KEYSTORE_PATH is not a file")
+        }
+    }
+}
+
 android {
     namespace = "com.lendentracker.lenden_tracker"
     compileSdk = flutter.compileSdkVersion
@@ -13,30 +37,36 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.lendentracker.lenden_tracker"
-        providers.gradleProperty("ldtTestApplicationIdSuffix").orNull?.let {
-            applicationIdSuffix = it
-        }
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
-        // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
-        // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
-        // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
-
+    flavorDimensions += "testIsolation"
+    productFlavors {
+        create("acceptance") {
+            dimension = "testIsolation"
+            applicationIdSuffix = ".acceptance"
+        }
+        create("standard") {
+            dimension = "testIsolation"
+        }
+    }
+    signingConfigs {
+        create("production") {
+            if (missingReleaseSigningVariables.isEmpty()) {
+                storeFile = file(System.getenv("RELEASE_KEYSTORE_PATH"))
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("production")
         }
     }
 }
@@ -46,7 +76,6 @@ kotlin {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
-
 flutter {
     source = "../.."
 }

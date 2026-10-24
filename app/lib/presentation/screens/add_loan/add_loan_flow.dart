@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -11,6 +10,8 @@ import '../../../domain/entities/entities.dart';
 import '../../../domain/services/interest_calculator.dart';
 import '../home/home_screen.dart';
 import '../loans/loans_screen.dart';
+import '../../widgets/contact_snapshot_picker.dart';
+import '../../../domain/services/phone_number_service.dart';
 
 class AddLoanFlow extends ConsumerStatefulWidget {
   const AddLoanFlow({super.key});
@@ -24,7 +25,7 @@ class _AddLoanFlowState extends ConsumerState<AddLoanFlow> {
   final _amount = TextEditingController();
   final _rate = TextEditingController();
   int _step = 0;
-  Contact? _contact;
+  ContactSnapshot? _contact;
   String? _phone;
   String? _contactError;
   LoanDirection _direction = LoanDirection.lent;
@@ -54,58 +55,17 @@ class _AddLoanFlowState extends ConsumerState<AddLoanFlow> {
 
   Future<void> _chooseContact() async {
     try {
-      if (!await FlutterContacts.requestPermission(readonly: true)) {
-        if (mounted) {
-          setState(
-            () => _contactError = 'Contact access is required to choose a borrower or lender. Enable it in app settings and try again.',
-          );
-        }
-        return;
-      }
-      if (!mounted) return;
-      final contact = await FlutterContacts.openExternalPick();
-      if (contact == null) return;
-      final selected =
-          await FlutterContacts.getContact(contact.id, withProperties: true) ??
-          contact;
-      if (!mounted) return;
-      if (selected.phones.isEmpty) {
-        setState(() => _contactError = 'This contact has no phone number.');
-        return;
-      }
-      String? number;
-      if (selected.phones.length == 1) {
-        number = selected.phones.first.number;
-      } else {
-        number = await showModalBottomSheet<String>(
-          context: context,
-          builder: (context) => SafeArea(
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                const ListTile(title: Text('Choose a phone number')),
-                for (final phone in selected.phones)
-                  ListTile(
-                    title: Text(phone.number),
-                    onTap: () => Navigator.pop(context, phone.number),
-                  ),
-              ],
-            ),
-          ),
-        );
-      }
-      if (number == null || !mounted) return;
-      final normalized = number.replaceAll(RegExp(r'[\s()\-]'), '');
+      final selected = await selectContactSnapshot(context);
+      if (selected == null || !mounted) return;
       setState(() {
         _contact = selected;
-        _phone = normalized;
-        _contactError = MoneyUtils.isValidE164(normalized) ? null : 'This number needs a country code (for example +919876543210). Edit it in Contacts first.';
+        _phone = selected.phone;
+        _contactError = null;
       });
     } catch (_) {
       if (mounted) {
         setState(
-          () => _contactError =
-              'Could not open Contacts. Check contact access and try again.',
+          () => _contactError = 'Could not select contact. Check contact access and try again. Existing loans remain accessible.',
         );
       }
     }
@@ -133,7 +93,7 @@ class _AddLoanFlowState extends ConsumerState<AddLoanFlow> {
     if (_step == 0) {
       if (_contact == null ||
           _phone == null ||
-          !MoneyUtils.isValidE164(_phone!)) {
+          PhoneNumberService.normalize(_phone!) == null) {
         setState(
           () => _contactError ??=
               'Choose a contact with an international phone number.',
@@ -296,7 +256,7 @@ class _AddLoanFlowState extends ConsumerState<AddLoanFlow> {
           ),
       ];
       final loanId = await repo.createWithPerson(
-        name: _contact!.displayName,
+        name: _contact!.name,
         phone: _phone!,
         contactId: _contact!.id,
         loan: Loan(
@@ -350,12 +310,15 @@ class _AddLoanFlowState extends ConsumerState<AddLoanFlow> {
       if (mounted) {
         context.go('/loans/$loanId');
       }
-    } catch (e, st) {
-      debugPrint('SAVE LOAN ERROR: $e\n$st');
+    } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not save the loan: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not save the loan. Check the details and try again.',
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -446,9 +409,7 @@ class _AddLoanFlowState extends ConsumerState<AddLoanFlow> {
       OutlinedButton.icon(
         onPressed: _chooseContact,
         icon: const Icon(Icons.contacts_outlined),
-        label: Text(
-          _contact == null ? 'Choose contact' : _contact!.displayName,
-        ),
+        label: Text(_contact == null ? 'Choose contact' : _contact!.name),
       ),
       if (_phone != null) Text(_phone!),
       if (_contactError != null)
@@ -670,7 +631,7 @@ class _AddLoanFlowState extends ConsumerState<AddLoanFlow> {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       Text(
-        '${_direction == LoanDirection.lent ? 'You lent' : 'You borrowed'} ${MoneyUtils.format(MoneyUtils.parseToMinor(_amount.text, _currency)!, _currency)} ${_direction == LoanDirection.lent ? 'to' : 'from'} ${_contact!.displayName}.',
+        '${_direction == LoanDirection.lent ? 'You lent' : 'You borrowed'} ${MoneyUtils.format(MoneyUtils.parseToMinor(_amount.text, _currency)!, _currency)} ${_direction == LoanDirection.lent ? 'to' : 'from'} ${_contact!.name}.',
         style: Theme.of(context).textTheme.titleLarge,
       ),
       const SizedBox(height: LdtSpacing.md),

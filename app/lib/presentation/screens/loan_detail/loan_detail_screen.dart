@@ -7,12 +7,14 @@ import '../../../core/utils/money_utils.dart';
 import '../../../data/repositories/repositories.dart';
 import '../../../domain/entities/entities.dart';
 import '../record_payment/record_payment_screen.dart';
+import '../reminder/reminder_preview_screen.dart';
 import 'schedule_and_audit.dart';
 
 import 'package:intl/intl.dart';
 
 import '../home/home_screen.dart';
 import '../loans/loans_screen.dart';
+import '../../widgets/contact_snapshot_picker.dart';
 
 final loanDetailProvider =
     FutureProvider.family<({Loan loan, Person? person}), int>((ref, id) async {
@@ -35,6 +37,16 @@ final interestDueProvider = FutureProvider.family<int, int>((ref, id) {
       .interestDue(id, DateTime.now().toIso8601String().substring(0, 10));
 });
 
+final interestBalanceProvider =
+    FutureProvider.family<({int dueMinor, int futureMinor}), int>((ref, id) {
+      return ref
+          .watch(paymentRepoProvider)
+          .interestBalance(
+            id,
+            DateTime.now().toIso8601String().substring(0, 10),
+          );
+    });
+
 class LoanDetailScreen extends ConsumerWidget {
   const LoanDetailScreen({super.key, required this.loanId});
   final int loanId;
@@ -48,6 +60,80 @@ class LoanDetailScreen extends ConsumerWidget {
         appBar: AppBar(
           title: const Text('Loan detail'),
           actions: [
+            IconButton(
+              tooltip: 'Re-link contact',
+              icon: const Icon(Icons.contact_phone_outlined),
+              onPressed: () async {
+                final current = detail.asData?.value.person;
+                if (current?.id == null) return;
+                ContactSnapshot? selected;
+                try {
+                  selected = await selectContactSnapshot(context);
+                } catch (_) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Could not select contact. Existing loan is unchanged.',
+                        ),
+                      ),
+                    );
+                  }
+                  return;
+                }
+                if (selected == null || !context.mounted) return;
+                final changed = current!.phoneE164 != selected.phone;
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (dialog) => AlertDialog(
+                    title: Text(
+                      changed
+                          ? 'Confirm changed recipient'
+                          : 'Re-link contact?',
+                    ),
+                    content: Text(
+                      changed
+                          ? 'Replace stored recipient ${current.phoneE164} with ${selected!.phone}? This also changes the recipient shown when sharing future reminders. Existing loans and payments remain unchanged.'
+                          : 'Link ${selected!.name} to this person? Existing loans and payments remain unchanged.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialog, false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(dialog, true),
+                        child: const Text('Confirm'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed != true || !context.mounted) return;
+                try {
+                  await ref
+                      .read(personRepoProvider)
+                      .relink(
+                        current.id!,
+                        name: selected.name,
+                        phone: selected.phone,
+                        contactId: selected.id,
+                      );
+                  ref.invalidate(loanDetailProvider(loanId));
+                  ref.invalidate(reminderLoanProvider(loanId));
+                  ref.invalidate(loansProvider);
+                } catch (_) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Could not re-link contact. Existing loan is unchanged.',
+                        ),
+                      ),
+                    );
+                  }
+                }
+              },
+            ),
             IconButton(
               tooltip: 'Reminder',
               icon: const Icon(Icons.message_outlined),
@@ -193,7 +279,7 @@ class LoanDetailScreen extends ConsumerWidget {
                                       const Text('Could not load balance.'),
                                   data: (value) {
                                     final interest = ref.watch(
-                                      interestDueProvider(loanId),
+                                      interestBalanceProvider(loanId),
                                     );
                                     return Column(
                                       crossAxisAlignment:
@@ -208,12 +294,34 @@ class LoanDetailScreen extends ConsumerWidget {
                                           error: (_, _) => const Text(
                                             'Could not load interest due.',
                                           ),
-                                          data: (due) => Text(
-                                            'Interest due: ${MoneyUtils.format(due, loan.currency)}',
+                                          data: (balance) => Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Interest due: ${MoneyUtils.format(balance.dueMinor, loan.currency)}',
+                                              ),
+                                              if (balance.futureMinor > 0)
+                                                Text(
+                                                  'Future fixed interest: ${MoneyUtils.format(balance.futureMinor, loan.currency)}',
+                                                ),
+                                            ],
                                           ),
                                         ),
                                         if (loan.status == LoanStatus.active &&
-                                            value.outstandingMinor > 0)
+                                            (value.outstandingMinor > 0 ||
+                                                loan.interestMethod ==
+                                                        InterestMethod
+                                                            .fixedTotal &&
+                                                    interest.valueOrNull !=
+                                                        null &&
+                                                    (interest
+                                                                .valueOrNull!
+                                                                .dueMinor +
+                                                            interest
+                                                                .valueOrNull!
+                                                                .futureMinor) >
+                                                        0))
                                           FilledButton(
                                             onPressed: () => context.push(
                                               '/loans/$loanId/payment',
@@ -292,19 +400,17 @@ class LoanDetailScreen extends ConsumerWidget {
               final p = await ref
                   .read(paymentRepoProvider)
                   .previewWaiver(loan.id!, today, parsed);
-                  if (!dialogContext.mounted || text != amount) return;
+              if (!dialogContext.mounted || text != amount) return;
               setDialogState(() {
                 preview = p;
                 previewError = null;
               });
-            } catch (e) {
+            } catch (_) {
               if (!dialogContext.mounted || text != amount) return;
               setDialogState(() {
                 preview = null;
-                previewError = e
-                    .toString()
-                    .replaceAll('Exception: ', '')
-                    .replaceAll('StateError: ', '');
+                previewError =
+                    'Could not preview waiver. Check the amount and try again.';
               });
             }
           }
@@ -412,20 +518,21 @@ class LoanDetailScreen extends ConsumerWidget {
                               amount,
                               loan.currency,
                             )!,
-                            note: note.trim().isEmpty
-                                ? null
-                                : note.trim(),
+                            note: note.trim().isEmpty ? null : note.trim(),
                           ),
                         );
                     ref.invalidate(loanDetailProvider(loan.id!));
+                    ref.invalidate(interestBalanceProvider(loan.id!));
                     ref.invalidate(paymentContextProvider(loan.id!));
                     ref.invalidate(principalBalancesProvider);
                     ref.invalidate(loansProvider);
                     if (dialogContext.mounted) Navigator.pop(dialogContext);
-                  } catch (e) {
+                  } catch (_) {
                     if (dialogContext.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Could not waive interest: $e')),
+                        const SnackBar(
+                          content: Text('Could not waive interest. Try again.'),
+                        ),
                       );
                     }
                   }
@@ -471,7 +578,8 @@ class _PaymentHistory extends ConsumerWidget {
                 title: Text(p.effectiveDate),
                 subtitle: Text(
                   '${p.reversed ? 'Reversed · ' : ''}'
-                  'principal ${MoneyUtils.format(p.principalMinor, currency)}',
+                  'principal ${MoneyUtils.format(p.principalMinor, currency)}'
+                  '${p.reversed && p.reversalReason != null ? '\nReason: ${p.reversalReason}' : ''}',
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -506,31 +614,54 @@ class _PaymentHistory extends ConsumerWidget {
     WidgetRef ref,
     Payment p,
   ) async {
-    final confirmed = await showDialog<bool>(
+    var reasonText = '';
+    final formKey = GlobalKey<FormState>();
+    final reason = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Reverse payment?'),
-        content: Text(
-          'Reverse ${MoneyUtils.format(p.totalMinor, currency)} dated ${p.effectiveDate}?',
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Reverse ${MoneyUtils.format(p.totalMinor, currency)} dated ${p.effectiveDate}?',
+              ),
+              TextFormField(
+                onChanged: (value) => reasonText = value,
+                decoration: const InputDecoration(labelText: 'Reversal reason'),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Reason is required'
+                    : null,
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(dialogContext, reasonText.trim());
+              }
+            },
             child: const Text('Reverse'),
           ),
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (reason == null) return;
     try {
-      await ref.read(paymentRepoProvider).reverse(p.id!);
+      await ref.read(paymentRepoProvider).reverse(p.id!, reason);
       ref.invalidate(paymentHistoryProvider(loanId));
       ref.invalidate(paymentContextProvider(loanId));
       ref.invalidate(interestDueProvider(loanId));
+      ref.invalidate(interestBalanceProvider(loanId));
       ref.invalidate(loanDetailProvider(loanId));
       ref.invalidate(principalBalancesProvider);
       ref.invalidate(loansProvider);
@@ -585,13 +716,10 @@ class _PaymentHistory extends ConsumerWidget {
                 preview = p;
                 previewError = null;
               });
-            } catch (e) {
+            } catch (_) {
               setDialogState(() {
                 preview = null;
-                previewError = e
-                    .toString()
-                    .replaceAll('Exception: ', '')
-                    .replaceAll('StateError: ', '');
+                previewError = 'Could not preview payment. Check the details and try again.';
               });
             }
           }
@@ -734,14 +862,17 @@ class _PaymentHistory extends ConsumerWidget {
                     ref.invalidate(paymentHistoryProvider(loanId));
                     ref.invalidate(paymentContextProvider(loanId));
                     ref.invalidate(interestDueProvider(loanId));
+                    ref.invalidate(interestBalanceProvider(loanId));
                     ref.invalidate(loanDetailProvider(loanId));
                     ref.invalidate(principalBalancesProvider);
                     ref.invalidate(loansProvider);
                     if (dialogContext.mounted) Navigator.pop(dialogContext);
-                  } catch (e) {
+                  } catch (_) {
                     if (dialogContext.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Could not update payment: $e')),
+                        const SnackBar(
+                          content: Text('Could not update payment. Try again.'),
+                        ),
                       );
                     }
                   }

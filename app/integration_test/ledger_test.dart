@@ -52,8 +52,17 @@ void main() {
           ),
         );
         expect(await payments.outstandingPrincipal(id), 7500);
-        await payments.reverse(payment.id!);
+        await expectLater(
+          payments.reverse(payment.id!, '   '),
+          throwsArgumentError,
+        );
+        expect(await payments.outstandingPrincipal(id), 7500);
+        expect((await payments.forLoan(id)).single.reversed, isFalse);
+        await payments.reverse(payment.id!, 'Duplicate entry');
         expect(await payments.outstandingPrincipal(id), 10000);
+        final reversed = (await payments.forLoan(id)).single;
+        expect(reversed.reversed, isTrue);
+        expect(reversed.reversalReason, 'Duplicate entry');
       }
       final interestLoanId = await loans.createWithPerson(
         name: 'Synthetic interest test',

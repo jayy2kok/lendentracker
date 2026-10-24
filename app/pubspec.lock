@@ -241,6 +241,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.15"
+  dlibphonenumber:
+    dependency: "direct main"
+    description:
+      name: dlibphonenumber
+      sha256: "806d04448ce36516b3197b3502ba59bf9923990cec316465e53b361ea8102094"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.74"
   fake_async:
     dependency: transitive
     description:
@@ -815,6 +823,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.0.6"
+  protobuf:
+    dependency: transitive
+    description:
+      name: protobuf
+      sha256: "13b6717366aa7ec3792dd62c19c7d33a785708224365f2db23c5ca01f1c1a0f2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.1.0"
   pub_semver:
     dependency: transitive
     description:

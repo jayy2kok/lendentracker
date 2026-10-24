@@ -134,6 +134,7 @@ class _RecordPaymentScreenState extends ConsumerState<RecordPaymentScreen> {
       }
       ref.invalidate(paymentContextProvider(widget.loanId));
       ref.invalidate(interestDueProvider(widget.loanId));
+      ref.invalidate(interestBalanceProvider(widget.loanId));
       ref.invalidate(paymentHistoryProvider(widget.loanId));
       ref.invalidate(loanDetailProvider(widget.loanId));
       ref.invalidate(principalBalancesProvider);
@@ -172,7 +173,9 @@ class _RecordPaymentScreenState extends ConsumerState<RecordPaymentScreen> {
         data: (value) {
           final loan = value.loan;
           final outstanding = value.outstandingMinor;
-          if (loan.status != LoanStatus.active || outstanding <= 0) {
+          if (loan.status != LoanStatus.active ||
+              (outstanding <= 0 &&
+                  loan.interestMethod != InterestMethod.fixedTotal)) {
             return const Center(
               child: Text('Payments for this loan are not available yet.'),
             );

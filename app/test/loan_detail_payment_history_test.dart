@@ -32,7 +32,8 @@ void main() {
           paymentContextProvider(1).overrideWith(
             (ref) async => (loan: loan(), outstandingMinor: 10000),
           ),
-          interestDueProvider(1).overrideWith((ref) async => 9677),
+          interestBalanceProvider(1)
+              .overrideWith((ref) async => (dueMinor: 9677, futureMinor: 0)),
           loanDetailProvider(1).overrideWith(
             (ref) async => (
               loan: Loan(
@@ -200,6 +201,69 @@ void main() {
     expect(find.byIcon(Icons.undo_outlined), findsOneWidget);
   });
 
+  testWidgets(
+    'reversal requires a reason and leaves data unchanged on cancel',
+    (tester) async {
+      final repo = _PaymentRepoFake([
+        Payment(
+          id: 1,
+          loanId: 1,
+          effectiveDate: '2026-10-10',
+          totalMinor: 3000,
+          principalMinor: 3000,
+          interestMinor: 0,
+          createdAt: now,
+        ),
+      ]);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            paymentRepoProvider.overrideWithValue(repo),
+            loanDetailProvider(1).overrideWith(
+              (ref) async => (
+                loan: loan(outstanding: 7000),
+                person: Person(
+                  displayName: 'Test',
+                  phoneE164: '+911****7890',
+                  createdAt: now,
+                ),
+              ),
+            ),
+          ],
+          child: const MaterialApp(home: LoanDetailScreen(loanId: 1)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('History'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.undo_outlined));
+      await tester.pumpAndSettle();
+      expect(find.text('Reversal reason'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(repo.reversedReason, isNull);
+      expect(repo._payments.single.reversed, isFalse);
+
+      await tester.tap(find.byIcon(Icons.undo_outlined));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reverse'));
+      await tester.pumpAndSettle();
+      expect(find.text('Reason is required'), findsOneWidget);
+      expect(repo.reversedReason, isNull);
+      await tester.enterText(find.byType(TextFormField), '   ');
+      await tester.tap(find.text('Reverse'));
+      await tester.pumpAndSettle();
+      expect(find.text('Reason is required'), findsOneWidget);
+      expect(repo.reversedReason, isNull);
+      await tester.enterText(find.byType(TextFormField), '  Duplicate entry  ');
+      await tester.tap(find.text('Reverse'));
+      await tester.pumpAndSettle();
+      expect(repo.reversedReason, 'Duplicate entry');
+      expect(repo._payments.single.reversed, isTrue);
+      expect(find.textContaining('Duplicate entry'), findsOneWidget);
+    },
+  );
+
   testWidgets('shows three loan detail tabs', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -277,9 +341,8 @@ void main() {
             (ref) async => (loan: interestLoan, outstandingMinor: 10000),
           ),
           interestDueProvider(1).overrideWith((ref) async => 500),
-          loanDetailProvider(1).overrideWith(
-            (ref) async => (loan: interestLoan, person: null),
-          ),
+          loanDetailProvider(1)
+              .overrideWith((ref) async => (loan: interestLoan, person: null)),
         ],
         child: const MaterialApp(home: LoanDetailScreen(loanId: 1)),
       ),
@@ -301,6 +364,24 @@ void main() {
 class _PaymentRepoFake implements PaymentRepository {
   _PaymentRepoFake(this._payments);
   final List<Payment> _payments;
+  String? reversedReason;
+
+  @override
+  Future<void> reverse(int paymentId, String reason) async {
+    reversedReason = reason;
+    final payment = _payments.singleWhere((p) => p.id == paymentId);
+    _payments[_payments.indexOf(payment)] = Payment(
+      id: payment.id,
+      loanId: payment.loanId,
+      effectiveDate: payment.effectiveDate,
+      totalMinor: payment.totalMinor,
+      principalMinor: payment.principalMinor,
+      interestMinor: payment.interestMinor,
+      reversed: true,
+      reversalReason: reason,
+      createdAt: payment.createdAt,
+    );
+  }
 
   @override
   Future<List<Payment>> forLoan(int loanId) async => _payments;
@@ -321,13 +402,16 @@ class _WaiverRepoFake extends _PaymentRepoFake {
   InterestWaiver? waiver;
 
   @override
-  Future<WaiverPreview> previewWaiver(int loanId, String date, int amountMinor) async =>
-      const WaiverPreview(
-        accruedInterestMinor: 500,
-        waivedBeforeMinor: 0,
-        waivedAfterMinor: 100,
-        remainingInterestMinor: 400,
-      );
+  Future<WaiverPreview> previewWaiver(
+    int loanId,
+    String date,
+    int amountMinor,
+  ) async => const WaiverPreview(
+    accruedInterestMinor: 500,
+    waivedBeforeMinor: 0,
+    waivedAfterMinor: 100,
+    remainingInterestMinor: 400,
+  );
 
   @override
   Future<int> waiveInterest(InterestWaiver value) async {
