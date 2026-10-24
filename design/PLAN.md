@@ -2,10 +2,13 @@
 
 Status: Flutter implementation exists in `app/` and completion/verification is in progress. Stitch UI/UX revision 2 incorporates LenDen Tracker/LDT branding, phone contacts, manual WhatsApp image reminders, and Light/Dark/System themes. See UI_UX.md and design/index.html. Financial conventions below are approved; implementation and acceptance evidence are tracked in design/TODO.md. Existing implementation does not by itself establish release readiness.
 
+Target end state for version 1: a working Android application delivered as an installable release APK, built by GitHub Actions and downloadable from the successful GitHub workflow run. iOS implementation, builds, and acceptance testing are future scope and do not block the Android release.
+
 ## Confirmed scope
 
 - Private ledger for loans given and received.
-- Android and iOS phone app.
+- Android phone app for version 1; iOS app in future scope.
+- GitHub Actions builds a release APK and publishes it as a downloadable build artifact.
 - Core ledger fully offline; no server sync in version 1. User-initiated WhatsApp sharing uses the external app and may need connectivity for delivery.
 - Encrypted local database on the phone.
 - Backup, restore, and export.
@@ -17,7 +20,7 @@ Status: Flutter implementation exists in `app/` and completion/verification is i
 
 ## Recommended approach
 
-Use Flutter for a single Android/iOS codebase, with SQLite encrypted using SQLCipher and an OS-protected database key stored through Keychain/Android Keystore integration. Validate maintained library compatibility, licensing, encrypted side files, and physical-device release builds before committing to specific packages. Use a small repository layer for database operations and ordinary Flutter screens; no backend or sync framework.
+Use Flutter for the Android app, retaining a shared-codebase path for future iOS support, with SQLite encrypted using SQLCipher and an OS-protected database key stored through Android Keystore integration. Validate maintained library compatibility, licensing, encrypted side files, and physical Android-device release builds before committing to specific packages. Future iOS support will require separate Keychain integration and platform validation. Use a small repository layer for database operations and ordinary Flutter screens; no backend or sync framework.
 
 Alternatives: React Native is reasonable if TypeScript is the team's strongest language, but requires the same native encryption verification. Separate Swift/Kotlin apps provide native control with twice the implementation and maintenance work. Flutter is the proposed default for a new, small app.
 
@@ -29,7 +32,7 @@ Alternatives: React Native is reasonable if TypeScript is the team's strongest l
 - Optional biometric/device-credential app lock; database encryption is always enabled.
 - Hundreds of loans and thousands of payments; target normal screens opening within two seconds on representative midrange phones.
 - Ledger operations and reminder-image rendering work in airplane mode. External message delivery is not guaranteed offline. A successful save means a committed local transaction.
-- Maintain one codebase with pinned dependencies and periodic platform/security updates. iOS builds and release testing require macOS/Xcode and signing access.
+- Maintain one Flutter codebase with pinned dependencies and periodic platform/security updates. Android release APKs are built and published through GitHub Actions. Future iOS builds and release testing require macOS/Xcode and signing access.
 
 ## Loan agreement and calculation rules
 
@@ -71,13 +74,13 @@ Tables: people, loans, dated agreement amendments, scheduled dues, payments/reve
 
 People store selected phone-contact references plus display-name and normalized E.164 phone snapshots, encrypted with the ledger. Use maintained country-aware number validation; do not infer country from currency. Require selection among multiple numbers and handle denied/limited access without blocking existing records. Do not import the entire address book. Contact changes and backup restores preserve history; re-link missing contacts and confirm changed numbers before sharing.
 
-WhatsApp sharing renders only the chosen loan reminder card to an app-private temporary image, previews recipient and image, and opens supported native sharing. Direct contact targeting with an image must be proven separately on Android/iOS; fall back to WhatsApp's recipient picker when unsupported. Do not assume a WhatsApp text deep link supports attachments. Never send automatically or report delivery from a share-sheet callback. Validate WhatsApp unavailable, offline, canceled, and failed-share states. No SMS permission or OTP verification service is added.
+WhatsApp sharing renders only the chosen loan reminder card to an app-private temporary image, previews recipient and image, and opens supported native sharing. Direct contact targeting with an image must be proven on Android for version 1; fall back to WhatsApp's recipient picker when unsupported. iOS handoff and targeting validation are future scope. Do not assume a WhatsApp text deep link supports attachments. Never send automatically or report delivery from a share-sheet callback. Validate WhatsApp unavailable, offline, canceled, and failed-share states. No SMS permission or OTP verification service is added.
 
 Generate a random database encryption key on first launch. Store it using platform secure storage; never hard-code it or place it beside the database. Confirm secure-storage accessibility survives ordinary OS upgrades and app restarts. Exclude the database and secrets from automatic platform backup to avoid accidental cloud copies or restoring ciphertext without its key. Mask sensitive app-switcher previews and keep financial data out of logs. No analytics or network service is required.
 
 ## Backup, restore, and export
 
-- Backup: a versioned portable snapshot encrypted with authenticated encryption, using a passphrase-derived key and random salt/nonce through maintained cryptographic libraries. It must restore on another Android or iOS phone without the old phone's database key. Passphrases are not stored in backup files and cannot be recovered by the app.
+- Backup: a versioned portable snapshot encrypted with authenticated encryption, using a passphrase-derived key and random salt/nonce through maintained cryptographic libraries. Version 1 must restore on another Android phone without the old phone's database key. Keep the format platform-independent for future iOS support; cross-platform restore validation is future scope. Passphrases are not stored in backup files and cannot be recovered by the app.
 - Use an OS file picker/share sheet so the user selects the destination. The app performs no server sync; an OS destination may be a user-selected cloud provider. Recommend a copy outside the phone for loss recovery.
 - Restore: validate file size/format/version, authenticate/decrypt, validate records and relationships, show record counts, and require confirmation before replacing the ledger. Version 1 replaces rather than merges. Retain the existing database until the restored database is validated and the switch succeeds; recover safely after interruption.
 - Export: human-readable CSV files for loans and payments, including currency and interest terms. Sanitize spreadsheet formula cells and quote/escape fields correctly. State that CSV is unencrypted and cannot serve as a full-fidelity restore backup. Clean up temporary files after sharing when safe.
@@ -86,25 +89,34 @@ Generate a random database encryption key on first launch. Store it using platfo
 ## Build sequence and acceptance gates
 
 1. Finalize agreement examples and basic screen wireframes. Approve interest conventions, fixed-interest early-payoff behavior, allocation defaults, and maturity handling.
-2. Validate Flutter + encrypted SQLite + secure storage on both platforms. Confirm database/side files are encrypted and keys are excluded from exports and logs. Establish application structure and migrations.
+2. Validate Flutter + encrypted SQLite + secure storage on Android. Confirm database/side files are encrypted and keys are excluded from exports and logs. Establish application structure and migrations.
 3. Build contact selection/phone validation, loans given/received, lists, detail, and transactional persistence. Verify all core flows offline, including restart persistence and contact permission denial/changes.
 4. Implement deterministic interest and schedule calculations, payment allocation, corrections, waivers, and amendments. Test known financial examples, leap years, month-end dates, partial payments, backdating, rounding, and full settlement.
-5. Build encrypted backup/restore and CSV export. Test cross-platform round trips, wrong passphrases, tampered/truncated files, unsupported versions, and interruption without data loss.
-6. Add manual WhatsApp image preview/handoff and verify platform targeting/fallback behavior on real phones. No automatic sends or false delivered status.
-7. Add System/Light/Dark theme support, app lock, privacy details, accessibility, and empty/error states. Test physical Android/iOS devices, upgrades/migrations, and complete airplane-mode ledger workflows. Prepare signed distributable builds when signing access is available.
+5. Build encrypted backup/restore and CSV export. Test Android-to-Android round trips, wrong passphrases, tampered/truncated files, unsupported versions, and interruption without data loss.
+6. Add manual WhatsApp image preview/handoff and verify Android targeting/fallback behavior on real phones. No automatic sends or false delivered status.
+7. Add System/Light/Dark theme support, app lock, privacy details, accessibility, and empty/error states. Test physical Android devices, upgrades/migrations, and complete airplane-mode ledger workflows.
+8. Configure GitHub Actions to run analysis and automated tests, build a signed release APK, and upload it as a downloadable workflow artifact. Keep the release keystore and passwords in protected GitHub Actions secrets, never in source control or artifacts. Use a stable signing identity so later APKs can update an existing installation without losing ledger data. Document the build/download/install steps, required GitHub access, artifact retention, version/build number, and APK checksum. Download the published artifact and verify installation, launch, core offline flows, and an upgrade on a physical Android phone. Signing configuration and successful APK verification are release gates, not optional follow-up work.
 
-Version 1 is complete when a user can record either loan direction under every supported arrangement, record/correct repayments, explain displayed balances from the history, and restore all records accurately on a second phone.
+Version 1 is complete when a user can download the release APK from a successful GitHub Actions build, install and run it on a supported Android phone, record either loan direction under every supported arrangement, record/correct repayments, explain displayed balances from the history, and restore all records accurately on a second Android phone. Passing source-code tests alone is insufficient: the downloaded APK must pass the Android acceptance checks above.
+
+## Future scope — iOS
+
+- Deliver an iOS app from the Flutter codebase after the working Android APK release.
+- Validate iOS native dependencies, SQLCipher encryption, Keychain storage, backup exclusions, privacy protections, contacts, app lock, and WhatsApp sharing on physical iPhones.
+- Verify Android/iOS portable-backup round trips and iOS accessibility, offline behavior, upgrades, and migrations.
+- Establish macOS/Xcode builds, Apple signing, and an appropriate iOS distribution channel. None of these are version 1 Android acceptance gates.
 
 ## Decision log
 
 | Decision | Status | Reason / alternatives |
 | --- | --- | --- |
 | Private, offline ledger without server sync | Confirmed | User preference; shared/cloud accounts excluded |
-| Android and iOS phones | Confirmed | User preference; desktop/web excluded |
+| Android version 1; iOS later | Confirmed | Working Android APK is the immediate deliverable; iOS is future scope; desktop/web excluded |
+| Downloadable APK from GitHub builds | Confirmed | GitHub Actions produces and publishes the installable Android release APK |
 | Encrypted local database | Confirmed | User preference; plain SQLite insufficient |
 | All listed interest arrangements | Confirmed | User preference; calculation and schedule modeled separately |
 | Backup and export | Confirmed | User preference; restore included to make backup useful |
-| Flutter | Confirmed | User approved one Android/iOS codebase |
+| Flutter | Confirmed | Android-first delivery with a shared-codebase path for future iOS support |
 | LenDen Tracker + LDT identity | Confirmed | User requested clearer distinction from similarly named products |
 | Required phone contact and messaging number | Confirmed | User request; offline validation covers format, not delivery capability |
 | Manual WhatsApp screenshot reminder | Confirmed | User request; review then external app handoff, no server or automated send |
@@ -115,4 +127,4 @@ Version 1 is complete when a user can record either loan direction under every s
 
 ## Next discussion
 
-Review the detailed Stitch UI/UX, then review worked interest examples before finalizing the implementation specification.
+Confirm the supported Android versions, GitHub artifact access and retention requirements, and release-signing setup. Complete the remaining UI/UX and worked-example verification, then validate the downloadable APK against the Android acceptance gates.

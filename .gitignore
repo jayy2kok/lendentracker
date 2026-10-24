@@ -79,3 +79,6 @@ key.properties
 **/windows/flutter/ephemeral/
 **/windows/CMakeCache.txt
 **/windows/CMakeFiles/
+
+.claude/
+.agents/
