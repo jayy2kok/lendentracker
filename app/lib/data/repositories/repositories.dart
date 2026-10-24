@@ -6,6 +6,7 @@ import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../../core/database/app_database.dart';
 import '../../../domain/entities/entities.dart';
 import '../../../domain/services/interest_calculator.dart';
+import '../../../domain/services/phone_number_service.dart';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Person Repository
@@ -20,9 +21,13 @@ class PersonRepository {
   final Database db;
 
   Future<Person> insert(Person p) async {
+    final phone = PhoneNumberService.normalize(p.phoneE164);
+    if (p.displayName.trim().isEmpty || phone == null) {
+      throw ArgumentError('A name and valid international phone are required');
+    }
     final id = await db.insert('people', {
       'display_name': p.displayName,
-      'phone_e164': p.phoneE164,
+      'phone_e164': phone,
       'contact_id': p.contactId,
       'created_at': DateTime.now().millisecondsSinceEpoch,
     });
@@ -62,12 +67,38 @@ class PersonRepository {
   }
 
   Future<void> updatePhone(int id, String newE164) async {
+    final phone = PhoneNumberService.normalize(newE164);
+    if (phone == null) throw ArgumentError('Invalid international phone');
     await db.update(
       'people',
-      {'phone_e164': newE164},
+      {'phone_e164': phone},
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  /// Only called after the user explicitly confirms replacing the snapshot.
+  Future<void> relink(
+    int id, {
+    required String name,
+    required String phone,
+    required String contactId,
+  }) async {
+    final normalized = PhoneNumberService.normalize(phone);
+    if (name.trim().isEmpty || normalized == null || contactId.isEmpty) {
+      throw ArgumentError('A selected contact and valid phone are required');
+    }
+    final changed = await db.update(
+      'people',
+      {
+        'display_name': name.trim(),
+        'phone_e164': normalized,
+        'contact_id': contactId,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (changed != 1) throw StateError('Person not found');
   }
 
   Person _fromRow(Map<String, dynamic> row) => Person(
@@ -145,10 +176,14 @@ class LoanRepository {
     required Loan loan,
     List<ScheduledDue> schedule = const [],
   }) async {
+    final normalizedPhone = PhoneNumberService.normalize(phone);
     if (name.trim().isEmpty ||
-        phone.trim().isEmpty ||
+        normalizedPhone == null ||
+        contactId.isEmpty ||
         loan.principalMinor <= 0) {
-      throw ArgumentError('Contact and positive principal are required');
+      throw ArgumentError(
+        'Contact, valid phone and positive principal are required',
+      );
     }
     if ((loan.paymentSchedule == PaymentSchedule.regular ||
             loan.paymentSchedule == PaymentSchedule.interestOnly) &&
@@ -169,16 +204,21 @@ class LoanRepository {
     return db.transaction((txn) async {
       final existing = await txn.query(
         'people',
-        columns: ['id'],
+        columns: ['id', 'contact_id'],
         where: 'phone_e164 = ?',
-        whereArgs: [phone],
+        whereArgs: [normalizedPhone],
         limit: 1,
       );
+      if (existing.isNotEmpty && existing.first['contact_id'] != contactId) {
+        throw StateError(
+          'Re-link the existing person before using a different contact',
+        );
+      }
       final personId = existing.isNotEmpty
           ? existing.first['id'] as int
           : await txn.insert('people', {
               'display_name': name.trim(),
-              'phone_e164': phone,
+              'phone_e164': normalizedPhone,
               'contact_id': contactId,
               'created_at': DateTime.now().millisecondsSinceEpoch,
             });

@@ -79,9 +79,11 @@ class SettingsScreen extends ConsumerWidget {
         );
         ref.invalidate(_lastBackupProvider);
       }
-    } catch (e) {
+    } catch (_) {
       if (context.mounted) {
-        messenger.showSnackBar(SnackBar(content: Text('Backup failed: $e')));
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Could not create backup. Try again.')),
+        );
       }
     }
   }
@@ -174,9 +176,15 @@ class SettingsScreen extends ConsumerWidget {
           ),
         );
       }
-    } catch (e) {
+    } catch (_) {
       if (context.mounted) {
-        messenger.showSnackBar(SnackBar(content: Text('Restore failed: $e')));
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not restore backup. The existing ledger is unchanged.',
+            ),
+          ),
+        );
       }
     }
   }
@@ -364,10 +372,12 @@ class SettingsScreen extends ConsumerWidget {
                       await Share.shareXFiles([
                         XFile(file.path),
                       ], subject: 'LenDen Tracker CSV Export');
-                    } catch (e) {
+                    } catch (_) {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Export failed: $e')),
+                          const SnackBar(
+                            content: Text('Could not export CSV. Try again.'),
+                          ),
                         );
                       }
                     } finally {

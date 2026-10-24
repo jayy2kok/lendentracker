@@ -152,9 +152,15 @@ class WelcomeScreen extends StatelessWidget {
     Uint8List clear;
     try {
       clear = await EncryptedBackup.decrypt(backupFile.bytes!, passphrase);
-    } catch (e) {
+    } catch (_) {
       if (context.mounted) {
-        messenger.showSnackBar(SnackBar(content: Text('Restore failed: $e')));
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not decrypt backup. Check the passphrase and file.',
+            ),
+          ),
+        );
       }
       return;
     }
@@ -189,10 +195,15 @@ class WelcomeScreen extends StatelessWidget {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('ledger_created', true);
       if (context.mounted) context.go(AppRoutes.home);
-    } catch (e) {
+    } catch (_) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Restore failed: $e')));
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not restore backup. The existing ledger is unchanged.',
+            ),
+          ),
+        );
       }
     }
   }

@@ -1,5 +1,7 @@
 import 'package:intl/intl.dart';
 
+import '../../domain/services/phone_number_service.dart';
+
 /// Currency-aware formatting and minor-unit arithmetic utilities.
 /// All persisted amounts are in integer minor units (paise, cents).
 abstract final class MoneyUtils {
@@ -44,9 +46,7 @@ abstract final class MoneyUtils {
     _ => '$code ',
   };
 
-  /// Validate a simple E.164 phone number (regex fallback).
-  /// Returns true for plausible E.164 format.
-  static bool isValidE164(String phone) {
-    return RegExp(r'^\+[1-9]\d{6,14}$').hasMatch(phone.trim());
-  }
+  /// Legacy convenience API; validity is determined by phone metadata, not length.
+  static bool isValidE164(String phone) =>
+      PhoneNumberService.normalize(phone) != null;
 }
