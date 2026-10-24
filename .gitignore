@@ -82,3 +82,4 @@ key.properties
 
 .claude/
 .agents/
+.worktrees/

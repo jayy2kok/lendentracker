@@ -1,7 +1,12 @@
 name: Android verification and signed APK
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -32,12 +37,16 @@ jobs:
         run: flutter test test
 
   release:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: verify
     runs-on: ubuntu-24.04
     environment: production-release
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with:
           distribution: temurin
@@ -47,6 +56,37 @@ jobs:
           flutter-version: '3.47.7'
           channel: stable
           cache: true
+      - name: Resolve application version and release tag
+        id: version
+        run: |
+          set -euo pipefail
+          RAW_VERSION=$(grep -E '^version: ' app/pubspec.yaml | awk '{print $2}')
+          VERSION_NAME=$(echo "$RAW_VERSION" | cut -d'+' -f1)
+          BUILD_NUMBER=$(echo "$RAW_VERSION" | cut -d'+' -f2)
+
+          MAJOR=$(echo "$VERSION_NAME" | cut -d'.' -f1)
+          MINOR=$(echo "$VERSION_NAME" | cut -d'.' -f2)
+          PATCH=$(echo "$VERSION_NAME" | cut -d'.' -f3)
+
+          git fetch --tags --force || true
+
+          # Auto-increment patch if tag already exists
+          CANDIDATE="v${MAJOR}.${MINOR}.${PATCH}"
+          while git rev-parse "$CANDIDATE" >/dev/null 2>&1 || \
+                git ls-remote --tags origin "refs/tags/$CANDIDATE" 2>/dev/null | grep -q "$CANDIDATE"; do
+            PATCH=$((PATCH + 1))
+            CANDIDATE="v${MAJOR}.${MINOR}.${PATCH}"
+          done
+
+          TAG_NAME="$CANDIDATE"
+          FINAL_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          APK_NAME="lenden-tracker-${TAG_NAME}.apk"
+
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_name=$FINAL_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
+          echo "::notice::Resolved release tag: $TAG_NAME (from pubspec $RAW_VERSION)"
       - name: Verify protected signing material
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
@@ -72,22 +112,42 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          APK_NAME: ${{ steps.version.outputs.apk_name }}
         run: |
           set -euo pipefail
           flutter pub get
-          flutter build apk --release --flavor standard
+          flutter build apk --release --flavor standard --build-name="$VERSION_NAME" --build-number="$BUILD_NUMBER"
           apk=build/app/outputs/flutter-apk/app-standard-release.apk
           test -s "$apk"
           mkdir -p "$RUNNER_TEMP/release-output"
-          cp "$apk" "$RUNNER_TEMP/release-output/lenden-tracker-standard-release.apk"
-          (cd "$RUNNER_TEMP/release-output" && sha256sum lenden-tracker-standard-release.apk > SHA256SUMS)
+          cp "$apk" "$RUNNER_TEMP/release-output/$APK_NAME"
+          (cd "$RUNNER_TEMP/release-output" && sha256sum "$APK_NAME" > SHA256SUMS)
       - name: Upload signed APK and checksum
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: lenden-tracker-standard-release-${{ github.run_id }}
+          name: lenden-tracker-standard-release-${{ steps.version.outputs.tag_name }}-${{ github.run_id }}
           path: ${{ runner.temp }}/release-output/
           if-no-files-found: error
           retention-days: 30
+      - name: Create GitHub Release and push tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists, updating assets..."
+            gh release upload "$TAG_NAME" "$RUNNER_TEMP/release-output"/* --clobber
+          else
+            gh release create "$TAG_NAME" \
+              "$RUNNER_TEMP/release-output"/* \
+              --target "${{ github.sha }}" \
+              --title "Release $TAG_NAME" \
+              --generate-notes
+          fi
       - name: Remove temporary signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/release-signing/release.jks"
