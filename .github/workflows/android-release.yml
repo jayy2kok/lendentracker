@@ -87,31 +87,9 @@ jobs:
           echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
           echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
           echo "::notice::Resolved release tag: $TAG_NAME (from pubspec $RAW_VERSION)"
-      - name: Verify protected signing material
-        env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          for key in RELEASE_KEYSTORE_BASE64 RELEASE_KEYSTORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
-            if [[ -z "${!key}" ]]; then
-              echo "Missing protected release credential: $key" >&2
-              exit 1
-            fi
-          done
-          install -d -m 700 "$RUNNER_TEMP/release-signing"
-          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release-signing/release.jks"
-          chmod 600 "$RUNNER_TEMP/release-signing/release.jks"
-          test -s "$RUNNER_TEMP/release-signing/release.jks"
-      - name: Build signed standard-flavor APK
+      - name: Build unsigned standard-flavor APK
         working-directory: app
         env:
-          RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/release-signing/release.jks
-          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
           TAG_NAME: ${{ steps.version.outputs.tag_name }}
           VERSION_NAME: ${{ steps.version.outputs.version_name }}
           BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
@@ -125,7 +103,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/release-output"
           cp "$apk" "$RUNNER_TEMP/release-output/$APK_NAME"
           (cd "$RUNNER_TEMP/release-output" && sha256sum "$APK_NAME" > SHA256SUMS)
-      - name: Upload signed APK and checksum
+      - name: Upload APK and checksum
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lenden-tracker-standard-release-${{ steps.version.outputs.tag_name }}-${{ github.run_id }}
@@ -148,6 +126,3 @@ jobs:
               --title "Release $TAG_NAME" \
               --generate-notes
           fi
-      - name: Remove temporary signing key
-        if: always()
-        run: rm -f "$RUNNER_TEMP/release-signing/release.jks"
