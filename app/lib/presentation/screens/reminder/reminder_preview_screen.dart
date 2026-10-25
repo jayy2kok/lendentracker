@@ -181,13 +181,18 @@ class _ReminderPreviewScreenState extends ConsumerState<ReminderPreviewScreen> {
     try {
       final Uint8List? image = await _controller.capture(pixelRatio: 2);
       if (image == null) throw StateError('Image unavailable');
-      final result = await Share.shareXFiles([
-        XFile.fromData(
-          image,
-          mimeType: 'image/png',
-          name: 'reminder_${item.loan.id}.png',
+      final result = await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile.fromData(
+              image,
+              mimeType: 'image/png',
+              name: 'reminder_${item.loan.id}.png',
+            ),
+          ],
+          text: _shareText,
         ),
-      ], text: _shareText);
+      );
       message = result.status == ShareResultStatus.dismissed
           ? 'Sharing cancelled. The reminder was not sent.'
           : 'Share sheet closed. Delivery is not confirmed.';
@@ -206,14 +211,12 @@ class _ReminderPreviewScreenState extends ConsumerState<ReminderPreviewScreen> {
     try {
       final Uint8List? image = await _controller.capture(pixelRatio: 2);
       if (image == null) throw StateError('Image unavailable');
-      final path = await FilePicker.saveFile(
+      final savedUri = await FilePicker.saveFile(
         dialogTitle: 'Save reminder image',
         fileName: 'reminder_${item.loan.id}.png',
-        type: FileType.custom,
-        allowedExtensions: const ['png'],
         bytes: image,
       );
-      if (!mounted || path == null) return;
+      if (!mounted || savedUri == null) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Reminder image saved.')));
     } catch (_) {

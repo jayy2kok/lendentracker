@@ -68,9 +68,12 @@ class SettingsScreen extends ConsumerWidget {
         '${temp.path}/lendentracker_${DateTime.now().millisecondsSinceEpoch}.ldtbackup',
       );
       await file.writeAsBytes(encrypted, flush: true);
-      final result = await Share.shareXFiles([
-        XFile(file.path),
-      ], subject: 'LenDen Tracker encrypted backup');
+      final result = await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          subject: 'LenDen Tracker encrypted backup',
+        ),
+      );
       if (result.status == ShareResultStatus.success) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(
@@ -97,17 +100,19 @@ class SettingsScreen extends ConsumerWidget {
     final selection = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['ldtbackup'],
-      withData: true,
     );
-    if (selection == null || !context.mounted) return;
-    final file = selection.files.single;
-    if (file.size <= 0 || file.size > EncryptedBackup.maxBackupBytes) {
+    if (!context.mounted || selection.isEmpty) return;
+    final file = selection.single;
+    final size = file.lengthSync() ?? await file.length() ?? 0;
+    final bytes = await file.readAsBytes();
+    if (!context.mounted) return;
+    if (size <= 0 || size > EncryptedBackup.maxBackupBytes) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Backup file is empty or too large.')),
       );
       return;
     }
-    if (file.bytes == null) {
+    if (bytes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not read the selected backup.')),
       );
@@ -137,7 +142,7 @@ class SettingsScreen extends ConsumerWidget {
     if (confirm != true || !context.mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final clear = await EncryptedBackup.decrypt(file.bytes!, pass);
+      final clear = await EncryptedBackup.decrypt(bytes, pass);
       final snapshot = jsonDecode(utf8.decode(clear)) as Map<String, dynamic>;
       final tables = snapshot['tables'] as Map<String, dynamic>;
       final peopleCount = (tables['people'] as List).length;
@@ -369,9 +374,12 @@ class SettingsScreen extends ConsumerWidget {
                       );
                       exportFile = file;
                       await file.writeAsString(csvData, flush: true);
-                      await Share.shareXFiles([
-                        XFile(file.path),
-                      ], subject: 'LenDen Tracker CSV Export');
+                      await SharePlus.instance.share(
+                        ShareParams(
+                          files: [XFile(file.path)],
+                          subject: 'LenDen Tracker CSV Export',
+                        ),
+                      );
                     } catch (_) {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(

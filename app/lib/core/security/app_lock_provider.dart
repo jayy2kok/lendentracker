@@ -24,7 +24,7 @@ class AppLockNotifier extends Notifier<bool> {
         if (!canAuth) return;
         final authenticated = await _auth.authenticate(
           localizedReason: 'Authenticate to enable App Lock',
-          options: const AuthenticationOptions(stickyAuth: true),
+          persistAcrossBackgrounding: true,
         );
         if (!authenticated) return;
       } catch (_) {
@@ -41,10 +41,8 @@ class AppLockNotifier extends Notifier<bool> {
     try {
       return await _auth.authenticate(
         localizedReason: 'Unlock LenDen Tracker',
-        options: const AuthenticationOptions(
-          stickyAuth: true,
-          biometricOnly: false,
-        ),
+        persistAcrossBackgrounding: true,
+        biometricOnly: false,
       );
     } catch (_) {
       return false;

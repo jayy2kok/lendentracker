@@ -1,5 +1,6 @@
 import 'package:dlibphonenumber/dlibphonenumber.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 
 import '../../../domain/services/phone_number_service.dart';
@@ -17,16 +18,36 @@ class ContactSnapshot {
 }
 
 Future<ContactSnapshot?> selectContactSnapshot(BuildContext context) async {
-  if (!await FlutterContacts.requestPermission(readonly: true)) {
-    throw StateError(
-      'Contact access is unavailable. Existing loans remain accessible.',
+  if (!await FlutterContacts.permissions.has(PermissionType.read)) {
+    final status = await FlutterContacts.permissions.request(
+      PermissionType.read,
     );
+    if (status != PermissionStatus.granted &&
+        status != PermissionStatus.limited) {
+      throw StateError(
+        'Contact access is unavailable. Existing loans remain accessible.',
+      );
+    }
   }
   if (!context.mounted) return null;
-  final picked = await FlutterContacts.openExternalPick();
+  Contact? picked;
+  try {
+    picked = await FlutterContacts.native.showPicker();
+  } on PlatformException catch (ex) {
+    if (ex.code == 'not_available') {
+      const channel = MethodChannel('flutter_contacts');
+      final result = await channel.invokeMethod<Map>('native.showPicker');
+      picked = result != null ? Contact.fromJson(result) : null;
+    } else {
+      rethrow;
+    }
+  }
   if (picked == null) return null;
   final contact =
-      await FlutterContacts.getContact(picked.id, withProperties: true) ??
+      await FlutterContacts.get(
+        picked.id ?? '',
+        properties: ContactProperties.allProperties,
+      ) ??
       picked;
   if (!context.mounted) return null;
   if (contact.phones.isEmpty) {
@@ -60,8 +81,8 @@ Future<ContactSnapshot?> selectContactSnapshot(BuildContext context) async {
   );
   if (phone == null) return null;
   return ContactSnapshot(
-    id: contact.id,
-    name: contact.displayName,
+    id: contact.id ?? '',
+    name: contact.displayName ?? '',
     phone: phone,
   );
 }

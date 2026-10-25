@@ -6,14 +6,17 @@ import 'package:lenden_tracker/presentation/screens/add_loan/add_loan_flow.dart'
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const channel = MethodChannel('github.com/QuisApp/flutter_contacts');
+  const channel = MethodChannel('flutter_contacts');
 
   testWidgets('Denied contact access does not open the picker', (tester) async {
     var pickerOpened = false;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-          if (call.method == 'requestPermission') return false;
-          if (call.method == 'openExternalPick') pickerOpened = true;
+          if (call.method == 'permissions.check' ||
+              call.method == 'permissions.request') {
+            return 'denied';
+          }
+          if (call.method == 'native.showPicker') pickerOpened = true;
           return null;
         });
     addTearDown(

@@ -313,13 +313,10 @@ class LoanDetailScreen extends ConsumerWidget {
                                                 loan.interestMethod ==
                                                         InterestMethod
                                                             .fixedTotal &&
-                                                    interest.valueOrNull !=
-                                                        null &&
-                                                    (interest
-                                                                .valueOrNull!
-                                                                .dueMinor +
+                                                    interest.value != null &&
+                                                    (interest.value!.dueMinor +
                                                             interest
-                                                                .valueOrNull!
+                                                                .value!
                                                                 .futureMinor) >
                                                         0))
                                           FilledButton(

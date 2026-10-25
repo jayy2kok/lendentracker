@@ -5,7 +5,7 @@ import 'package:lenden_tracker/presentation/widgets/contact_snapshot_picker.dart
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const channel = MethodChannel('github.com/QuisApp/flutter_contacts');
+  const channel = MethodChannel('flutter_contacts');
 
   testWidgets(
     'multiple numbers require selection; cancellation yields no snapshot',
@@ -15,21 +15,31 @@ void main() {
           .setMockMethodCallHandler(channel, (call) async {
             methods.add(call.method);
             switch (call.method) {
-              case 'requestPermission':
-                return true;
-              case 'openExternalPick':
-                return 'synthetic-id';
-              case 'select':
-                return [
-                  <String, Object>{
-                    'id': 'synthetic-id',
-                    'name': <String, Object>{'first': 'Test'},
-                    'phones': [
-                      <String, String>{'number': '9876543210'},
-                      <String, String>{'number': '+16502530000'},
-                    ],
-                  },
-                ];
+              case 'permissions.check':
+                return 'granted';
+              case 'permissions.request':
+                return 'granted';
+              case 'native.showPicker':
+                return <String, Object>{
+                  'id': 'synthetic-id',
+                  'displayName': 'Test',
+                };
+              case 'crud.get':
+                return <String, Object>{
+                  'id': 'synthetic-id',
+                  'displayName': 'Test',
+                  'name': <String, Object>{'first': 'Test'},
+                  'phones': [
+                    <String, Object>{
+                      'number': '9876543210',
+                      'label': <String, String>{'label': 'mobile'},
+                    },
+                    <String, Object>{
+                      'number': '+16502530000',
+                      'label': <String, String>{'label': 'mobile'},
+                    },
+                  ],
+                };
             }
             return null;
           });

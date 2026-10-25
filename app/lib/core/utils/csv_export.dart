@@ -100,6 +100,6 @@ class CsvExportService {
       ]);
     }
 
-    return const ListToCsvConverter().convert(rows);
+    return Csv().encode(rows);
   }
 }

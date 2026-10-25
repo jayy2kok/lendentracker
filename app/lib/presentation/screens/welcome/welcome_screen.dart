@@ -104,13 +104,15 @@ class WelcomeScreen extends StatelessWidget {
     final selection = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['ldtbackup'],
-      withData: true,
     );
-    if (selection == null || !context.mounted) return;
-    final backupFile = selection.files.single;
-    if (backupFile.size <= 0 ||
-        backupFile.size > EncryptedBackup.maxBackupBytes ||
-        backupFile.bytes == null) {
+    if (!context.mounted || selection.isEmpty) return;
+    final backupFile = selection.single;
+    final size = backupFile.lengthSync() ?? await backupFile.length() ?? 0;
+    final bytes = await backupFile.readAsBytes();
+    if (!context.mounted) return;
+    if (size <= 0 ||
+        size > EncryptedBackup.maxBackupBytes ||
+        bytes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Backup file is unreadable or too large.'),
@@ -151,7 +153,7 @@ class WelcomeScreen extends StatelessWidget {
     if (passphrase == null || !context.mounted) return;
     Uint8List clear;
     try {
-      clear = await EncryptedBackup.decrypt(backupFile.bytes!, passphrase);
+      clear = await EncryptedBackup.decrypt(bytes, passphrase);
     } catch (_) {
       if (context.mounted) {
         messenger.showSnackBar(
